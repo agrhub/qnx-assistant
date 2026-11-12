@@ -1,0 +1,43 @@
+# External commands that a program launches (system, popen, exec*, argv arrays,
+# or a wrapper such as run("parted", ...)). The compiler never sees these, so a
+# port that builds cleanly can still fail at run time.
+#
+# Commands listed here are Linux-specific. Any other launched command is
+# reported at level "review" so that someone checks it exists on the target.
+
+wrappers: [timeout, sudo, nice, ionice, env, stdbuf, nohup, setsid]
+
+commands:
+  - names: [systemctl, journalctl, systemd-run, loginctl]
+    level: medium
+    qnx: startup scripts or SLM (System Launch and Monitor); restart a service with slay + relaunch
+  - names: [timedatectl, hostnamectl]
+    level: easy
+    qnx: date / rtc; hostname
+  - names: [nmcli, nmtui, NetworkManager]
+    level: hard
+    qnx: no NetworkManager; ifconfig, route, dhcpcd, wpa_supplicant
+  - names: [ip, iw, iwconfig, ifup, ifdown, brctl]
+    level: medium
+    qnx: ifconfig / route / netstat
+  - names: [udhcpc, udhcpd, dhclient, hostapd]
+    level: medium
+    qnx: dhcpcd; check hostapd availability
+  - names: [modprobe, insmod, rmmod, lsmod]
+    level: hard
+    qnx: no kernel modules; start the driver (resource manager) process instead
+  - names: [udevadm, partprobe, wipefs, blkid, lsblk]
+    level: medium
+    qnx: no udev; devb-* drivers and fdisk
+  - names: [parted, sgdisk]
+    level: medium
+    qnx: fdisk
+  - names: [mkfs, mkfs.ext4, mkfs.ext3, mkfs.ext2, mkfs.vfat, mkfs.fat, mke2fs]
+    level: medium
+    qnx: mkqnx6fs (Power-Safe filesystem) or mkdosfs
+  - names: [reboot, poweroff, halt]
+    level: easy
+    qnx: shutdown
+  - names: [apt, apt-get, dpkg, snap]
+    level: hard
+    qnx: no package manager on target; ship files in the image

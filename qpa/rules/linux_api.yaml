@@ -1,0 +1,302 @@
+# Linux -> QNX 8.0 porting rules.
+#
+# Each rule matches one or more of:
+#   calls          function call names
+#   call_prefixes  any call whose name starts with one of these (a whole library API)
+#   includes       header paths; "linux/*" matches by prefix
+#   identifiers    macros / constants used anywhere in code
+#   paths          string literals that start with one of these prefixes
+#
+# level      easy | medium | hard | blocker
+# fix        auto   - mechanical rewrite the tool can apply
+#            shim   - covered by libqlinux (link it, no source change)
+#            ai     - needs a context-aware rewrite (AI proposes, build verifies)
+#            report - needs a redesign; the report explains the direction
+# confidence high       - well-known QNX behaviour
+#            unverified - plausible, must be confirmed by a build on QNX 8.0
+# verified_on  set once a rule has been proven by a real QNX 8.0 build/test
+
+- id: linux-headers
+  title: Linux kernel headers
+  level: hard
+  match:
+    includes: ["linux/*", "asm/*"]
+  qnx: QNX has no linux/*.h; use the matching QNX header or driver API
+  fix: report
+  confidence: high
+
+- id: epoll
+  title: epoll
+  level: medium
+  match:
+    calls: [epoll_create, epoll_create1, epoll_ctl, epoll_wait, epoll_pwait]
+    includes: [sys/epoll.h]
+  qnx: poll()/select(); ionotify() for native event delivery
+  fix: shim
+  shim: qlinux/sys/epoll.h
+  confidence: high
+
+- id: eventfd
+  title: eventfd
+  level: medium
+  match:
+    calls: [eventfd, eventfd_read, eventfd_write]
+    includes: [sys/eventfd.h]
+  qnx: a self-pipe, or a pulse on a channel
+  fix: shim
+  shim: qlinux/sys/eventfd.h
+  confidence: unverified
+
+- id: timerfd
+  title: timerfd
+  level: medium
+  match:
+    calls: [timerfd_create, timerfd_settime, timerfd_gettime]
+    includes: [sys/timerfd.h]
+  qnx: timer_create() delivering a pulse, or a timer thread writing to a pipe
+  fix: ai
+  confidence: high
+
+- id: signalfd
+  title: signalfd
+  level: medium
+  match:
+    calls: [signalfd]
+    includes: [sys/signalfd.h]
+  qnx: a thread blocked in sigwaitinfo() forwarding to a pipe
+  fix: ai
+  confidence: high
+
+- id: inotify
+  title: inotify
+  level: medium
+  match:
+    calls: [inotify_init, inotify_init1, inotify_add_watch, inotify_rm_watch]
+    includes: [sys/inotify.h]
+  qnx: check QNX 8.0 inotify support; otherwise poll the files
+  fix: ai
+  confidence: unverified
+
+- id: memfd
+  title: memfd_create
+  level: medium
+  match:
+    calls: [memfd_create]
+  qnx: shm_open() with SHM_ANON, or shm_open() + shm_unlink()
+  fix: ai
+  confidence: unverified
+
+- id: splice-sendfile
+  title: splice / sendfile / copy_file_range
+  level: easy
+  match:
+    calls: [splice, tee, vmsplice, sendfile, copy_file_range]
+    includes: [sys/sendfile.h]
+  qnx: a read()/write() loop
+  fix: ai
+  confidence: high
+
+- id: io-uring
+  title: io_uring / Linux AIO
+  level: hard
+  match:
+    calls: [io_setup, io_submit, io_getevents]
+    call_prefixes: [io_uring_]
+    includes: [liburing.h, linux/io_uring.h, libaio.h]
+  qnx: POSIX AIO or a worker thread pool
+  fix: report
+  confidence: high
+
+- id: prctl
+  title: prctl
+  level: easy
+  match:
+    calls: [prctl]
+    includes: [sys/prctl.h]
+  qnx: PR_SET_NAME/PR_GET_NAME -> pthread_setname_np()/pthread_getname_np(); other options have no direct equivalent
+  fix: ai
+  confidence: unverified
+
+- id: sysinfo
+  title: sysinfo
+  level: easy
+  match:
+    calls: [sysinfo]
+    includes: [sys/sysinfo.h]
+  qnx: sysconf() and QNX system queries for memory and uptime
+  fix: ai
+  confidence: unverified
+
+- id: statfs
+  title: statfs (Linux)
+  level: easy
+  match:
+    calls: [statfs, fstatfs]
+    includes: [sys/vfs.h, sys/statfs.h]
+  qnx: POSIX statvfs()/fstatvfs()
+  fix: auto
+  confidence: high
+
+- id: cpu-affinity
+  title: CPU affinity
+  level: easy
+  match:
+    calls: [sched_setaffinity, sched_getaffinity, pthread_setaffinity_np, pthread_getaffinity_np]
+    identifiers: [CPU_SET, CPU_ZERO, CPU_ISSET]
+  qnx: ThreadCtl(_NTO_TCTL_RUNMASK, ...)
+  fix: ai
+  confidence: high
+
+- id: gettid-syscall
+  title: gettid / raw syscall()
+  level: easy
+  match:
+    calls: [gettid, syscall]
+    identifiers: [SYS_gettid, __NR_gettid]
+  qnx: gettid() or pthread_self(); no raw Linux syscall numbers
+  fix: ai
+  confidence: unverified
+
+- id: accept4-pipe2-dup3
+  title: accept4 / pipe2 / dup3
+  level: easy
+  match:
+    calls: [accept4, pipe2, dup3]
+  qnx: use if the QNX libc has them, otherwise call + fcntl(FD_CLOEXEC/O_NONBLOCK)
+  fix: shim
+  shim: qlinux/compat.h
+  confidence: unverified
+
+- id: socket-flags
+  title: Linux socket flags
+  level: easy
+  match:
+    identifiers: [MSG_NOSIGNAL, SO_REUSEPORT, SOCK_CLOEXEC, SOCK_NONBLOCK, TCP_KEEPIDLE, TCP_USER_TIMEOUT, SO_BINDTODEVICE]
+  qnx: check each on io-sock; fall back to fcntl() / SO_NOSIGPIPE / setsockopt alternatives
+  fix: ai
+  confidence: unverified
+
+- id: clock-boottime
+  title: CLOCK_BOOTTIME / CLOCK_MONOTONIC_RAW
+  level: easy
+  match:
+    identifiers: [CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_MONOTONIC_COARSE, CLOCK_REALTIME_COARSE]
+  qnx: CLOCK_MONOTONIC
+  fix: auto
+  confidence: high
+
+- id: backtrace
+  title: glibc backtrace
+  level: easy
+  match:
+    calls: [backtrace, backtrace_symbols, backtrace_symbols_fd]
+    includes: [execinfo.h]
+  qnx: QNX backtrace library, or drop in release builds
+  fix: ai
+  confidence: unverified
+
+- id: netlink
+  title: netlink sockets
+  level: hard
+  match:
+    identifiers: [AF_NETLINK, NETLINK_ROUTE, RTM_NEWLINK, RTM_NEWADDR]
+  qnx: BSD routing socket (AF_ROUTE) and getifaddrs() on io-sock
+  fix: report
+  confidence: high
+
+- id: proc-fs
+  title: Linux /proc layout
+  level: medium
+  match:
+    paths: ["/proc/"]
+  qnx: QNX /proc differs (per-process info via devctl on /proc/<pid>/as); net info via getifaddrs/sysctl
+  fix: ai
+  confidence: high
+
+- id: sysfs
+  title: sysfs (/sys)
+  level: hard
+  match:
+    paths: ["/sys/"]
+  qnx: no sysfs; network MAC -> getifaddrs(AF_LINK), thermal/GPIO -> BSP driver APIs
+  fix: ai
+  confidence: high
+
+- id: evdev
+  title: evdev input
+  level: hard
+  match:
+    paths: ["/dev/input"]
+    identifiers: [EVIOCGRAB, EV_KEY, input_event]
+  qnx: QNX input services or the BSP GPIO driver
+  fix: report
+  confidence: high
+
+- id: linux-dev-nodes
+  title: Linux device nodes (i2c-dev, spidev, gpiochip, video)
+  level: hard
+  match:
+    paths: ["/dev/i2c-", "/dev/spidev", "/dev/gpiochip", "/dev/video", "/dev/mem"]
+  qnx: QNX resource managers (/dev/i2c*, /dev/spi*) use devctl() messages, not Linux ioctls
+  fix: report
+  confidence: high
+
+- id: v4l2
+  title: V4L2 video capture
+  level: hard
+  match:
+    identifiers: [VIDIOC_QUERYCAP, VIDIOC_S_FMT, VIDIOC_REQBUFS, VIDIOC_STREAMON, v4l2_buffer, v4l2_format]
+    includes: [linux/videodev2.h, libv4l2.h]
+  qnx: QNX camera / sensor framework
+  fix: report
+  confidence: high
+
+- id: alsa
+  title: ALSA audio
+  level: hard
+  match:
+    includes: [alsa/asoundlib.h]
+    call_prefixes: [snd_pcm_, snd_mixer_]
+  qnx: io-audio (QNX Sound Architecture)
+  fix: report
+  confidence: high
+
+- id: gstreamer
+  title: GStreamer
+  level: hard
+  match:
+    includes: ["gst/*"]
+    call_prefixes: [gst_]
+  qnx: not in the QNX base SDP; port GStreamer, or replace with a small RTSP client + FFmpeg/QNX multimedia
+  fix: report
+  confidence: high
+
+- id: systemd-lib
+  title: libsystemd
+  level: medium
+  match:
+    includes: ["systemd/*"]
+    calls: [sd_notify, sd_journal_print, sd_bus_open_system]
+  qnx: no systemd; drop readiness notification, use slog2 for logging
+  fix: ai
+  confidence: high
+
+- id: dbus
+  title: D-Bus
+  level: hard
+  match:
+    includes: ["dbus/*", "gio/gio.h"]
+    calls: [dbus_bus_get, g_dbus_connection_new_sync]
+  qnx: QNX message passing or a port of the D-Bus daemon
+  fix: report
+  confidence: high
+
+- id: vendor-npu
+  title: Vendor NPU SDK (Amlogic / VeriSilicon / Rockchip)
+  level: blocker
+  match:
+    includes: [vsi_nn_pub.h, nn_sdk.h, rknn_api.h]
+    call_prefixes: [vsi_nn_, aml_module_, rknn_]
+  qnx: no vendor NPU driver on QNX; run the model on CPU (e.g. TensorFlow Lite, already ported to QNX)
+  fix: report
+  confidence: high
