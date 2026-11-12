@@ -1,0 +1,40 @@
+# Benchmark candidates. Before a project is used, confirm on the QNX Open-Source
+# Dashboard (https://repo.oss.qnx.com) that it has not been ported already.
+#
+# scan: findings from `qpa scan` at the listed commit (filled in by bench runs)
+
+projects:
+  - name: mosquitto
+    url: https://github.com/eclipse/mosquitto
+    tier: medium
+    why: MQTT broker for connected devices; epoll already behind WITH_EPOLL
+
+  - name: redis
+    url: https://github.com/redis/redis
+    tier: medium
+    why: event loop with epoll, kqueue and select backends; /proc for memory stats
+
+  - name: iperf3
+    url: https://github.com/esnet/iperf
+    tier: medium
+    why: network test tool for embedded targets
+
+  - name: htop
+    url: https://github.com/htop-dev/htop
+    tier: hard
+    why: every process metric comes from Linux /proc; needs a QNX platform backend
+
+  - name: mjpg-streamer
+    url: https://github.com/jacksonliam/mjpg-streamer
+    tier: hard
+    why: V4L2 capture; shows how the report handles a blocked subsystem
+
+  - name: inih
+    url: https://github.com/benhoyt/inih
+    tier: easy
+    why: plain C; checks the build-file and test path end to end
+
+  - name: libyaml
+    url: https://github.com/yaml/libyaml
+    tier: easy
+    why: plain C with its own test suite
