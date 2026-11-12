@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e '.[test]'
+      - name: Python tests
+        run: python -m pytest -q tests
+      - name: libqlinux tests (host, with sanitizers)
+        run: |
+          make -C libqlinux test CFLAGS="-O1 -g -fsanitize=address,undefined"
+          make -C libqlinux clean
+          make -C libqlinux test CFLAGS="-O1 -g -fsanitize=thread"
+      - name: Port the example on the emulate target (recorded repair responses)
+        env:
+          QPA_PROVIDER: replay
+          QPA_REPLAY: tests/fixtures/sysmon-replay.json
+        run: qpa port examples/linux-sysmon -o out/linux-sysmon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-sysmon-report
+          path: out/linux-sysmon/report.html
