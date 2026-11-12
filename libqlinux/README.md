@@ -14,7 +14,7 @@ Drop-in replacements for Linux-only calls, so code that uses them builds on QNX 
 make qnx ARCH=x86_64        # or ARCH=aarch64le for Raspberry Pi 5
 ```
 
-Add `-I<path>/libqlinux/include/qlinux` so that `#include <sys/epoll.h>` and `<sys/eventfd.h>` resolve here, and link `build/qnx-<ARCH>/libqlinux.a`. For `compat.h`, add `-include qlinux/compat.h` (with `-I<path>/libqlinux/include`) and define `QLINUX_HAVE_ACCEPT4`, `QLINUX_HAVE_PIPE2` or `QLINUX_HAVE_DUP3` for calls the QNX libc already has.
+Add `-I<path>/libqlinux/include/qlinux` so that `#include <sys/epoll.h>` and `<sys/eventfd.h>` resolve here, and link `build/qnx-<ARCH>/libqlinux.a`. For `compat.h`, add `-DQLINUX_FORCE_INCLUDE -include qlinux/compat.h` (with `-I<path>/libqlinux/include`); the force-include mode includes no system header, so the program's own feature macros are untouched. Define `QLINUX_HAVE_ACCEPT4`, `QLINUX_HAVE_PIPE2` or `QLINUX_HAVE_DUP3` for calls the QNX libc already has.
 
 ## Known differences from Linux
 
@@ -28,4 +28,4 @@ make test                    # host: checks the emulation logic (77 checks)
 make qnx-test ARCH=x86_64    # QNX: copy build/qnx-x86_64/test_qlinux to the target and run it
 ```
 
-Status: the tests pass on a Linux host, including under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer. They have not been run on a QNX 8.0 target yet.
+Status: the tests pass on a Linux host, including under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer, and the mosquitto broker's event loop runs on this epoll in the qpa benchmark. Run them on QNX 8.0 with `scripts/qnx-e2e.sh`.
