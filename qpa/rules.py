@@ -24,6 +24,7 @@ class Rule:
     call_prefixes: list[str] = field(default_factory=list)
     includes: list[str] = field(default_factory=list)
     identifiers: list[str] = field(default_factory=list)
+    types: list[str] = field(default_factory=list)
     paths: list[str] = field(default_factory=list)
 
 
@@ -33,6 +34,7 @@ class RuleSet:
     calls: dict[str, str]          # function name -> rule id
     call_prefixes: list[tuple[str, str]]
     identifiers: dict[str, str]    # identifier -> rule id
+    types: dict[str, str]          # type name (struct/typedef use only) -> rule id
     includes_exact: dict[str, str]
     includes_prefix: list[tuple[str, str]]
     paths: list[tuple[str, str]]   # (prefix, rule id), longest first
@@ -68,6 +70,7 @@ def load(rules_dir: Path = RULES_DIR) -> RuleSet:
     calls: dict[str, str] = {}
     call_prefixes: list[tuple[str, str]] = []
     idents: dict[str, str] = {}
+    types: dict[str, str] = {}
     inc_exact: dict[str, str] = {}
     inc_prefix: list[tuple[str, str]] = []
     paths: list[tuple[str, str]] = []
@@ -79,7 +82,7 @@ def load(rules_dir: Path = RULES_DIR) -> RuleSet:
             fix=item.get("fix", "report"), confidence=item.get("confidence", "unverified"),
             shim=item.get("shim"), verified_on=item.get("verified_on"),
             calls=m.get("calls", []), call_prefixes=m.get("call_prefixes", []), includes=m.get("includes", []),
-            identifiers=m.get("identifiers", []), paths=m.get("paths", []),
+            identifiers=m.get("identifiers", []), types=m.get("types", []), paths=m.get("paths", []),
         )
         if r.level not in LEVELS:
             raise ValueError(f"rule {r.id}: unknown level {r.level}")
@@ -90,6 +93,8 @@ def load(rules_dir: Path = RULES_DIR) -> RuleSet:
             call_prefixes.append((c, r.id))
         for i in r.identifiers:
             idents[i] = r.id
+        for ty in r.types:
+            types[ty] = r.id
         for h in r.includes:
             if h.endswith("*"):
                 inc_prefix.append((h[:-1], r.id))
@@ -115,5 +120,5 @@ def load(rules_dir: Path = RULES_DIR) -> RuleSet:
         qnx="confirm each command exists on the QNX target image", fix="report", confidence="high",
     )
 
-    return RuleSet(rules, calls, call_prefixes, idents, inc_exact, inc_prefix, paths, commands,
+    return RuleSet(rules, calls, call_prefixes, idents, types, inc_exact, inc_prefix, paths, commands,
                    set(cmd_doc.get("wrappers", [])))

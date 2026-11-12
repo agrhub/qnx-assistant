@@ -5,6 +5,7 @@
 #   call_prefixes  any call whose name starts with one of these (a whole library API)
 #   includes       header paths; "linux/*" matches by prefix
 #   identifiers    macros / constants used anywhere in code
+#   types          struct / typedef names (only where used as a type)
 #   paths          string literals that start with one of these prefixes
 #
 # level      easy | medium | hard | blocker
@@ -143,6 +144,7 @@
   match:
     calls: [sched_setaffinity, sched_getaffinity, pthread_setaffinity_np, pthread_getaffinity_np]
     identifiers: [CPU_SET, CPU_ZERO, CPU_ISSET]
+    types: [cpu_set_t]
   qnx: ThreadCtl(_NTO_TCTL_RUNMASK, ...)
   fix: ai
   confidence: high
@@ -227,7 +229,8 @@
   level: hard
   match:
     paths: ["/dev/input"]
-    identifiers: [EVIOCGRAB, EV_KEY, input_event]
+    identifiers: [EVIOCGRAB, EVIOCGNAME, EVIOCGBIT]
+    types: [input_event]
   qnx: QNX input services or the BSP GPIO driver
   fix: report
   confidence: high
@@ -245,7 +248,8 @@
   title: V4L2 video capture
   level: hard
   match:
-    identifiers: [VIDIOC_QUERYCAP, VIDIOC_S_FMT, VIDIOC_REQBUFS, VIDIOC_STREAMON, v4l2_buffer, v4l2_format]
+    identifiers: [VIDIOC_QUERYCAP, VIDIOC_S_FMT, VIDIOC_REQBUFS, VIDIOC_STREAMON]
+    types: [v4l2_buffer, v4l2_format, v4l2_capability]
     includes: [linux/videodev2.h, libv4l2.h]
   qnx: QNX camera / sensor framework
   fix: report

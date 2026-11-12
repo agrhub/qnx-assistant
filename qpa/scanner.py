@@ -24,16 +24,17 @@ from .rules import LEVELS, RuleSet
 C_EXT = {".c", ".h"}
 CPP_EXT = {".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".inl"}
 DEFAULT_EXCLUDES = {".git", "node_modules", "third_party", "thirdparty", "3rdparty", "vendor",
-                    "build", "out", "dist", ".venv", "venv", "__pycache__"}
+                    "build", "out", "dist", ".venv", "venv", "__pycache__", ".qpa", "build-qnx"}
 
 LAUNCH_SHELL = {"system", "popen"}
 LAUNCH_EXEC = {"execl", "execlp", "execle", "execv", "execvp", "execve", "execvpe", "posix_spawnp"}
 LAUNCHER_NAME = re.compile(r"exec|spawn|run|launch|cmd|command|shell|popen|system", re.I)
 COMMAND_WORD = re.compile(r"^[A-Za-z0-9_./+-]*[A-Za-z][A-Za-z0-9_./+-]*$")
 NOT_A_WRAPPER = re.compile(r"printf|puts|log|err|warn|str|mem|json|cJSON|add|set|get|cmp|equal", re.I)
+# A branch already selected by platform or by a build-time feature check (configure/CMake HAVE_*,
+# WITH_EPOLL, ...): on QNX the check fails and the other branch is built.
 PLATFORM_GUARD = re.compile(
-    r"__linux__|__gnu_linux__|\blinux\b|\bLINUX\b|HAVE_(SYS_)?EPOLL|HAVE_EVENTFD|HAVE_INOTIFY|"
-    r"HAVE_TIMERFD|HAVE_SIGNALFD|USE_EPOLL|WITH_EPOLL|HAVE_LINUX_\w+")
+    r"__linux__|__gnu_linux__|\blinux\b|\bLINUX\b|LINUX_VERSION_CODE|\bHAVE_\w+|USE_EPOLL|WITH_EPOLL")
 
 _C = Language(tree_sitter_c.language())
 _CPP = Language(tree_sitter_cpp.language())
@@ -107,8 +108,9 @@ def _is_null(node: Node) -> bool:
     return node.type in ("null", "nullptr") or t in ("NULL", "nullptr", "0", "(char *)NULL", "(char *)0")
 
 
-def _guard(node: Node) -> str | None:
-    """Condition of an enclosing #if/#ifdef branch that already selects Linux."""
+def _guard(node: Node, symbol: str | None = None) -> str | None:
+    """Condition of an enclosing #if/#ifdef branch that already selects Linux or tests for the
+    feature (HAVE_..., or the very name being used, as in `#ifdef TCP_USER_TIMEOUT`)."""
     child, parent = node, node.parent
     while parent is not None:
         if parent.type in ("preproc_if", "preproc_ifdef", "preproc_elif"):
@@ -117,7 +119,8 @@ def _guard(node: Node) -> str | None:
             cond = parent.child_by_field_name("condition") or parent.child_by_field_name("name")
             cond_text = _text(cond) if cond is not None else ""
             negated = _text(parent).startswith("#ifndef") or cond_text.lstrip().startswith("!")
-            if PLATFORM_GUARD.search(cond_text) and (in_alt == negated):
+            tests_it = bool(symbol) and re.search(rf"\b{re.escape(symbol)}\b", cond_text) is not None
+            if (PLATFORM_GUARD.search(cond_text) or tests_it) and (in_alt == negated):
                 return ("#ifndef " if negated else "#if ") + cond_text.strip()[:80]
         child, parent = parent, parent.parent
     return None
@@ -166,7 +169,7 @@ class Scanner:
                 return
             seen.add(key)
             snippet = lines[line - 1].strip()[:160] if line - 1 < len(lines) else ""
-            res.findings.append(Finding(rule, rel, line, kind, symbol, snippet, _guard(node), certainty))
+            res.findings.append(Finding(rule, rel, line, kind, symbol, snippet, _guard(node, symbol), certainty))
 
         stack = [tree.root_node]
         while stack:
@@ -178,7 +181,9 @@ class Scanner:
                 p = n.child_by_field_name("path")
                 if p is not None:
                     header = _text(p).strip("<>\"")
-                    rid = self.rules.match_include(header)
+                    # "linux/Compat.h" may be the project's own file (htop has a linux/ platform dir)
+                    local = p.type == "string_literal" and ((path.parent / header).exists() or (root / header).exists())
+                    rid = None if local else self.rules.match_include(header)
                     if rid:
                         add(rid, n, "include", header)
             elif t == "call_expression":
@@ -186,9 +191,12 @@ class Scanner:
             elif t == "initializer_list":
                 self._on_argv(n, add)
             elif t in ("identifier", "type_identifier"):
-                rid = self.rules.identifiers.get(_text(n))
+                name = _text(n)
+                rid = self.rules.identifiers.get(name)
+                if not rid and t == "type_identifier":
+                    rid = self.rules.types.get(name)     # a struct/typedef name, never a variable
                 if rid:
-                    add(rid, n, "identifier", _text(n))
+                    add(rid, n, "identifier", name)
             elif t in ("string_literal", "concatenated_string"):
                 if not (t == "string_literal" and n.parent is not None and n.parent.type == "concatenated_string"):
                     val = _string_value(n)
