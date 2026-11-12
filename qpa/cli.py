@@ -12,6 +12,7 @@ from . import __version__
 from .report import LEVEL_LABEL, summarize, write_html, write_json
 from .rules import LEVELS, load
 from .scanner import Scanner
+from .target import TARGETS
 
 app = typer.Typer(add_completion=False, no_args_is_help=True,
                   help="Find, fix and verify what keeps a Linux C/C++ project from running on QNX 8.0.")
@@ -47,6 +48,73 @@ def scan(
         worst = LEVELS[: LEVELS.index(fail_on) + 1]
         if any(s["by_level"][lv] for lv in worst):
             raise typer.Exit(1)
+
+
+@app.command()
+def port(
+    path: Path = typer.Argument(..., exists=True, file_okay=False, help="Project directory (left untouched)."),
+    out: Path = typer.Option(Path("qpa-port"), "--out", "-o", help="Work directory: ported copy, logs, patch, report."),
+    target: str = typer.Option("emulate", "--target", "-t", help=f"One of: {', '.join(TARGETS)}."),
+    device: str = typer.Option(None, "--device", "-d", help="QNX device for tests, user@host[:port] "
+                                                         "(default $QPA_DEVICE)."),
+    identity: str = typer.Option(None, "--identity", "-i", help="ssh private key for the device."),
+    ai: bool = typer.Option(True, "--ai/--no-ai", help="Use a language model for errors the rules do not fix."),
+    max_rounds: int = typer.Option(6, help="Most AI repair rounds."),
+    fix: bool = typer.Option(True, "--fix/--no-fix", help="Apply fixes (off: only build and test as-is)."),
+    test: bool = typer.Option(True, "--test/--no-test", help="Run the project's tests after a good build."),
+    shim: bool = typer.Option(True, "--shim/--no-shim", help="Link libqlinux (epoll, eventfd, accept4, ...)."),
+    config: Path = typer.Option(None, "--config", "-c", help="qpa.yaml to use instead of <project>/qpa.yaml."),
+    title: str = typer.Option(None, help="Project name shown in the report."),
+):
+    """Port a project: scan, fix, build for QNX, repair with AI, run its tests, report."""
+    from .llm import LLMError, get_provider
+    from .port import port as run_port
+    from .runner import Device, device_from_env
+
+    provider = None
+    if ai:
+        try:
+            provider = get_provider()
+        except LLMError as e:
+            raise typer.BadParameter(str(e))
+    dev = Device.parse(device, identity) if device else device_from_env()
+    res = run_port(path, out, load(), target_name=target, provider=provider, max_rounds=max_rounds, fix=fix,
+                   run_tests=test, device=dev, config_path=config, shim=shim, title=title)
+
+    b, t = res.build, res.test
+    rule_n = sum(1 for c in res.changes if c["origin"].startswith("rule"))
+    ai_n = sum(1 for c in res.changes if c["origin"] == "ai")
+    typer.echo(f"{res.project} -> {res.target}")
+    typer.echo(f"  fixes      {rule_n} rule, {ai_n} AI ({len(res.rounds)} AI round(s))")
+    typer.echo(f"  build      {'OK' if b['ok'] else 'FAILED'} ({b['system']}, {b['attempts']} attempt(s)"
+               + ("" if b["ok"] else f", {b['error_count']} error(s) left") + ")")
+    typer.echo(f"  tests      {('PASS' if t['ok'] else 'FAIL') + ' on ' + t['where'] if t and t['ran'] else 'not run'}")
+    for n in res.notes:
+        typer.echo(f"  note       {n}")
+    typer.echo(f"  report     {out / 'report.html'}")
+    typer.echo(f"  patch      {out / 'qnx-port.patch'}")
+    if not b["ok"] or (t is not None and not t["ok"]):
+        raise typer.Exit(1)
+
+
+vm_app = typer.Typer(help="Start or stop a QNX 8.0 QEMU virtual machine (needs the QNX SDP).")
+app.add_typer(vm_app, name="vm")
+
+
+@vm_app.command("up")
+def vm_up(arch: str = typer.Option("x86_64", help="x86_64 or aarch64le")):
+    """Build (first time) and boot a headless QNX VM; prints the --device to use."""
+    from . import vm
+    dev = vm.up(arch)
+    typer.echo(f"QNX VM is up at {dev.host}; use: eval \"$(qpa vm up)\"", err=True)
+    typer.echo(f"export QPA_DEVICE={dev.user}@{dev.host} QPA_SSH_IDENTITY={dev.identity}")
+
+
+@vm_app.command("down")
+def vm_down(arch: str = typer.Option("x86_64", help="x86_64 or aarch64le")):
+    """Stop the QNX VM."""
+    from . import vm
+    vm.down(arch)
 
 
 @app.command()

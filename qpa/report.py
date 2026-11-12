@@ -57,7 +57,71 @@ def write_json(res: ScanResult, rules: RuleSet, path: Path) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def write_html(res: ScanResult, rules: RuleSet, path: Path, title: str | None = None) -> None:
+def _diff_html(diff: str) -> str:
+    out = []
+    for line in diff.splitlines():
+        cls = ("add" if line.startswith("+") and not line.startswith("+++") else
+               "del" if line.startswith("-") and not line.startswith("---") else
+               "hunk" if line.startswith("@@") else "")
+        out.append(f'<span class="{cls}">{html.escape(line)}</span>' if cls else html.escape(line))
+    return "\n".join(out)
+
+
+def _status(ok: bool | None, yes: str = "pass", no: str = "fail") -> str:
+    if ok is None:
+        return '<span class="st none">not run</span>'
+    return f'<span class="st {"ok" if ok else "bad"}">{yes if ok else no}</span>'
+
+
+def _port_section(port: dict) -> str:
+    e = html.escape
+    b, t = port["build"], port.get("test")
+    rule_n = sum(1 for c in port["changes"] if c["origin"].startswith("rule"))
+    ai_n = sum(1 for c in port["changes"] if c["origin"] == "ai")
+    accepted = sum(1 for r in port["rounds"] if r.get("accepted"))
+    phases = " · ".join(f"{k} {v}s" for k, v in port["phases"].items())
+    tiles = f"""
+<div class="cards port">
+  <div class="card"><div class="k">Build for {e(port['target'])}</div><div class="n">{_status(b['ok'])}</div>
+    <div class="h">{e(b['system'])}, {b['attempts']} attempt(s){'' if b['ok'] else ', ' + str(b['error_count']) + ' error(s) left'}</div></div>
+  <div class="card"><div class="k">Tests</div><div class="n">{_status(t['ok'] if t and t.get('ran') else None)}</div>
+    <div class="h">{e(t['where']) + ', ' + str(t['seconds']) + 's' if t else 'no test run'}</div></div>
+  <div class="card"><div class="k">Rule fixes</div><div class="n">{rule_n}</div><div class="h">files changed mechanically</div></div>
+  <div class="card"><div class="k">AI repairs</div><div class="n">{ai_n}</div>
+    <div class="h">{accepted} of {len(port['rounds'])} round(s) kept by the compiler</div></div>
+</div>
+<p class="meta">{e(phases)}</p>"""
+    notes = "".join(f"<li>{e(n)}</li>" for n in port.get("notes", []))
+    changes = "".join(f"""
+<details class="rule"><summary><span class="pill {'ai' if c['origin'] == 'ai' else 'rulefix'}">{'AI' if c['origin'] == 'ai' else 'rule'}</span>
+<span class="t">{e(c['file'])}</span><span class="cnt">{e(c['reason'])}</span></summary>
+<div class="body"><pre class="diff">{_diff_html(c['diff'])}</pre></div></details>""" for c in port["changes"])
+    rounds = "".join(
+        f"<tr><td>{r['round']}</td><td>{r.get('errors_before', '')}</td><td>{r.get('errors_after', '–')}</td>"
+        f"<td>{r.get('applied', 0)}</td><td>{'kept' if r.get('accepted') else 'reverted' if r.get('applied') else 'no edit'}</td>"
+        f"<td>{e(r.get('notes') or r.get('error') or '')}</td></tr>" for r in port["rounds"])
+    left = ""
+    if not b["ok"]:
+        errs = "".join(f"<tr><td class='loc'>{e(x['file'])}:{x['line']}</td><td><code>{e(x['message'])}</code></td></tr>"
+                       for x in b["errors"][:30])
+        left = f"<h2>Errors left</h2><table class='occ'>{errs}</table>"
+    test_out = f"<h2>Test output</h2><pre class='log'>{e(t['output'][-6000:])}</pre>" if t and t.get("output") else ""
+    before, after = port["findings_before"], port["findings_after"]
+    trend = " · ".join(f"{LEVEL_LABEL[lv]} {before.get(lv, 0)} → {after.get(lv, 0)}" for lv in LEVELS)
+    return f"""{tiles}
+{('<ul class="notes">' + notes + '</ul>') if notes else ''}
+<p class="muted">Open findings before → after the port: {e(trend)}. Code behind a Linux <code>#if</code> and calls
+covered by libqlinux are not counted. What is left is mostly launched commands and runtime paths
+(<code>/proc</code>, <code>/sys</code>) that no compiler can see; check them on the target.</p>
+<h2>Changes ({len(port['changes'])})</h2>
+<p class="muted">Also saved as <code>qnx-port.patch</code>; apply it to the original tree with <code>git apply</code>.</p>
+{changes or '<p>No source changes were needed.</p>'}
+{('<h2>AI repair rounds</h2><table class="occ"><tr><th>Round</th><th>Errors before</th><th>after</th><th>Edits</th><th>Result</th><th>Notes</th></tr>' + rounds + '</table>') if rounds else ''}
+{left}{test_out}"""
+
+
+def write_html(res: ScanResult, rules: RuleSet, path: Path, title: str | None = None,
+               port: dict | None = None) -> None:
     s = summarize(res, rules)
     e = html.escape
     name = title or Path(res.root).name
@@ -133,12 +197,21 @@ td.loc {{ white-space:nowrap; color:var(--muted); width:1% }}
 table.occ code {{ white-space:pre-wrap; word-break:break-word }}
 .guard {{ color:var(--easy); font-size:12px }} .likely {{ font-size:11px; color:var(--muted); margin-left:6px }}
 @media (max-width:600px) {{ td.loc {{ white-space:normal }} }}
+.st {{ font-size:20px; font-weight:700 }} .st.ok {{ color:var(--easy) }} .st.bad {{ color:var(--blocker) }} .st.none {{ color:var(--muted) }}
+.cards.port .card {{ border-top-color:var(--line) }}
+.pill.ai {{ background:#6941c6 }} .pill.rulefix {{ background:var(--review) }}
+pre.diff, pre.log {{ font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; overflow:auto; background:var(--bg);
+  border:1px solid var(--line); border-radius:6px; padding:10px; margin:10px 0 }}
+pre.diff .add {{ color:var(--easy) }} pre.diff .del {{ color:var(--blocker) }} pre.diff .hunk {{ color:var(--muted) }}
+ul.notes {{ color:var(--medium) }} table.occ th {{ text-align:left; font-size:12px; color:var(--muted); padding:4px 8px }}
 </style></head>
 <body><main>
 <h1>QNX port report: {e(name)}</h1>
+{_port_section(port) if port else ''}
+{'<h2>Porting plan (scan of the original code)</h2>' if port else ''}
 <div class="meta">{s['files']} source files · {s['lines']:,} lines · {s['files_with_findings']} files need changes · target {e(s['target'])} · {e(s['tool'])} · {e(s['generated'])}</div>
 <div class="cards">{cards}</div>
-<h2>Porting plan</h2>
+{'' if port else '<h2>Porting plan</h2>'}
 <p class="muted">One row per issue type, hardest first. Open a row to see every place in the code.</p>
 {''.join(rows) or '<p>No Linux-specific code found.</p>'}
 <p class="muted" style="margin-top:24px">{s['parse_warnings']} file(s) contain syntax the parser could not fully read (often heavy macros); findings there may be incomplete.</p>

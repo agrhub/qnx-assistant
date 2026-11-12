@@ -1,0 +1,6 @@
+build:
+  system: make
+test:
+  command: ./sysmon --selftest
+  files: [sysmon]
+  timeout: 60
