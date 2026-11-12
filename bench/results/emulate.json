@@ -1,0 +1,134 @@
+{
+  "meta": {
+    "target": "emulate",
+    "date": "2026-11-12",
+    "ai": "off"
+  },
+  "projects": [
+    {
+      "project": "linux-sysmon",
+      "tier": "medium",
+      "files": 1,
+      "lines": 146,
+      "open_before": 13,
+      "open_after": 7,
+      "hard_blocker_after": 0,
+      "rule_fixes": 1,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "fail",
+      "errors_left": 2,
+      "test": "not run",
+      "seconds": 0.4,
+      "notes": [
+        "no language model configured; set ANTHROPIC_API_KEY or OPENAI_API_KEY and QPA_MODEL"
+      ]
+    },
+    {
+      "project": "inih",
+      "tier": "easy",
+      "files": 14,
+      "lines": 1343,
+      "open_before": 0,
+      "open_after": 0,
+      "hard_blocker_after": 0,
+      "rule_fixes": 0,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "pass",
+      "errors_left": 0,
+      "test": "pass",
+      "seconds": 0.6,
+      "notes": []
+    },
+    {
+      "project": "libyaml",
+      "tier": "easy",
+      "files": 24,
+      "lines": 17197,
+      "open_before": 0,
+      "open_after": 0,
+      "hard_blocker_after": 0,
+      "rule_fixes": 0,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "pass",
+      "errors_left": 0,
+      "test": "pass",
+      "seconds": 4.7,
+      "notes": []
+    },
+    {
+      "project": "iperf3",
+      "tier": "medium",
+      "files": 43,
+      "lines": 21274,
+      "open_before": 7,
+      "open_after": 7,
+      "hard_blocker_after": 2,
+      "rule_fixes": 0,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "pass",
+      "errors_left": 0,
+      "test": "pass",
+      "seconds": 11.8,
+      "notes": []
+    },
+    {
+      "project": "mosquitto",
+      "tier": "medium",
+      "files": 605,
+      "lines": 116374,
+      "open_before": 11,
+      "open_after": 11,
+      "hard_blocker_after": 2,
+      "rule_fixes": 0,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "pass",
+      "errors_left": 0,
+      "test": "pass",
+      "seconds": 16.3,
+      "notes": []
+    },
+    {
+      "project": "redis",
+      "tier": "medium",
+      "files": 856,
+      "lines": 430849,
+      "open_before": 41,
+      "open_after": 40,
+      "hard_blocker_after": 3,
+      "rule_fixes": 1,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "fail",
+      "errors_left": 11,
+      "test": "not run",
+      "seconds": 97.9,
+      "notes": [
+        "no language model configured; set ANTHROPIC_API_KEY or OPENAI_API_KEY and QPA_MODEL"
+      ]
+    },
+    {
+      "project": "htop",
+      "tier": "hard",
+      "files": 283,
+      "lines": 48950,
+      "open_before": 31,
+      "open_after": 29,
+      "hard_blocker_after": 19,
+      "rule_fixes": 1,
+      "ai_rounds": 0,
+      "ai_kept": 0,
+      "build": "fail",
+      "errors_left": 7,
+      "test": "not run",
+      "seconds": 19.1,
+      "notes": [
+        "no language model configured; set ANTHROPIC_API_KEY or OPENAI_API_KEY and QPA_MODEL"
+      ]
+    }
+  ]
+}

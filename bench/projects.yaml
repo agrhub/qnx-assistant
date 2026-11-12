@@ -1,40 +1,104 @@
-# Benchmark candidates. Before a project is used, confirm on the QNX Open-Source
-# Dashboard (https://repo.oss.qnx.com) that it has not been ported already.
+# Benchmark projects for `python bench/run.py`.
 #
-# scan: findings from `qpa scan` at the listed commit (filled in by bench runs)
+# Each entry is cloned at `ref` and ported with `qpa port`; `qpa` holds the
+# project's qpa.yaml (build options and a test that runs on the target).
+# Before quoting a result, confirm on the QNX Open-Source Dashboard
+# (https://repo.oss.qnx.com) whether the project already has a QNX port.
 
 projects:
-  - name: mosquitto
-    url: https://github.com/eclipse/mosquitto
+  - name: linux-sysmon
+    path: examples/linux-sysmon
     tier: medium
-    why: MQTT broker for connected devices; epoll already behind WITH_EPOLL
-
-  - name: redis
-    url: https://github.com/redis/redis
-    tier: medium
-    why: event loop with epoll, kqueue and select backends; /proc for memory stats
-
-  - name: iperf3
-    url: https://github.com/esnet/iperf
-    tier: medium
-    why: network test tool for embedded targets
-
-  - name: htop
-    url: https://github.com/htop-dev/htop
-    tier: hard
-    why: every process metric comes from Linux /proc; needs a QNX platform backend
-
-  - name: mjpg-streamer
-    url: https://github.com/jacksonliam/mjpg-streamer
-    tier: hard
-    why: V4L2 capture; shows how the report handles a blocked subsystem
+    why: the codelab example; epoll, eventfd, statfs, CLOCK_BOOTTIME, prctl, sysinfo, CPU affinity
 
   - name: inih
     url: https://github.com/benhoyt/inih
+    ref: 611ab51f8dd7ec583543815b0de693495045fbf8
     tier: easy
-    why: plain C; checks the build-file and test path end to end
+    why: plain C INI parser; checks the build and test path end to end
+    qpa:
+      build:
+        system: custom
+        commands:
+          - cd tests && $CC -Wall ../ini.c unittest.c -o unittest_multi
+          - cd tests && $CC -Wall -DINI_ALLOW_MULTILINE=0 ../ini.c unittest.c -o unittest_single
+      test:
+        command: cd tests && ./unittest_multi | diff - baseline_multi.txt && ./unittest_single | diff - baseline_single.txt
+        files: [tests]
 
   - name: libyaml
     url: https://github.com/yaml/libyaml
+    ref: 90a56d4500aa1a1798514c5cb55c3ad4cb095f94
     tier: easy
-    why: plain C with its own test suite
+    why: C library with its own unit tests; CMake
+    qpa:
+      build:
+        system: cmake
+        cmake_args: [-DBUILD_TESTING=ON]
+      test:
+        command: ./build-qnx/test-version && ./build-qnx/test-reader && ./build-qnx/test-nesting
+        files: [build-qnx/test-version, build-qnx/test-reader, build-qnx/test-nesting]
+
+  - name: iperf3
+    url: https://github.com/esnet/iperf
+    ref: 53f88becd961c1b3a0294d8a7359d62d863cd8f2
+    tier: medium
+    why: network throughput tool; Autotools; Linux-only features detected by configure
+    qpa:
+      build:
+        system: autotools
+        configure_args: [--disable-shared, --enable-static, --without-openssl, --without-sctp]
+      test:
+        command: ./src/iperf3 -s -1 -D -p 15201 && sleep 1 && ./src/iperf3 -c 127.0.0.1 -p 15201 -t 1
+        files: [src/iperf3]
+        timeout: 60
+
+  - name: mosquitto
+    url: https://github.com/eclipse/mosquitto
+    ref: fda14f2c196d9d2fcdd07d6c5d31a673524f7368
+    tier: medium
+    why: MQTT broker for connected devices; CMake; epoll behind WITH_EPOLL
+    qpa:
+      build:
+        system: cmake
+        cmake_args: [-DWITH_TLS=OFF, -DWITH_TESTS=OFF, -DWITH_DOCS=OFF, -DWITH_LIB_CPP=OFF, -DWITH_LTO=OFF,
+                     -DWITH_CTRL_SHELL=OFF, -DWITH_WEBSOCKETS=OFF, -DWITH_CJSON=OFF, -DWITH_APPS=OFF,
+                     -DWITH_PLUGINS=OFF, -DWITH_HTTP_API=OFF]
+      test:
+        command: >-
+          ./build-qnx/src/mosquitto -p 18830 -d && sleep 1 &&
+          LD_LIBRARY_PATH=build-qnx/lib ./build-qnx/client/mosquitto_pub -p 18830 -t qpa -m ok -r &&
+          LD_LIBRARY_PATH=build-qnx/lib ./build-qnx/client/mosquitto_sub -p 18830 -t qpa -C 1 -W 5 | grep -x ok
+        files: [build-qnx/src/mosquitto, build-qnx/client/mosquitto_pub, build-qnx/client/mosquitto_sub,
+                build-qnx/lib/libmosquitto.so*]
+        timeout: 60
+
+  - name: redis
+    url: https://github.com/redis/redis
+    ref: b83c9c1eeaeeb8d5ebe42cb1a2ee405fc08ede88
+    tier: medium
+    why: event loop with epoll/kqueue/select backends; /proc for memory stats; plain make
+    qpa:
+      build:
+        system: make
+        make_args: [MALLOC=libc, BUILD_TLS=no, USE_SYSTEMD=no]
+      test:
+        command: >-
+          ./src/redis-server --port 16379 --daemonize yes --save '' && sleep 1 &&
+          ./src/redis-cli -p 16379 set qpa ok && ./src/redis-cli -p 16379 get qpa | grep -x ok &&
+          ./src/redis-cli -p 16379 shutdown nosave; true
+        files: [src/redis-server, src/redis-cli]
+        timeout: 120
+
+  - name: htop
+    url: https://github.com/htop-dev/htop
+    ref: 6655b88f719a723431b0b921ca21050c9820ddf6
+    tier: hard
+    why: every process metric comes from Linux /proc and /sys; needs a QNX platform backend
+    qpa:
+      build:
+        system: autotools
+        configure_args: [--disable-unicode, --disable-sensors]
+      test:
+        command: ./htop --version
+        files: [htop]
